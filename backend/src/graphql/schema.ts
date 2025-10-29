@@ -19,6 +19,8 @@ const schema = buildSchema(`
   type Mutation {
     signup(name: String!, email: String!, password: String!): AuthPayload
     login(email: String!, password: String!): AuthPayload
+    forgotPassword(email: String!): String
+    updatePassword(token: String!, newPassword: String!): String
   }
 `);
 

@@ -4,7 +4,7 @@ import { graphqlHTTP } from "express-graphql";
 import schema from "./graphql/schema";
 import resolvers from "./graphql/resolvers";
 import dotenv from "dotenv";
-import authRoutes from "./routes/authRoutes"; // <- REST endpoints
+import authRoutes from "./routes/userauthRoutes"; // <- REST endpoints
 
 dotenv.config();
 const app = express();
