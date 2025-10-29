@@ -8,45 +8,48 @@ import { requireAdmin } from "../../middleware/requireAdmin";
 
 const resolvers = {
   // ------------------- Signup -------------------
-  signup: async ({ name, email, password }: any, req: any) => {
+  signup: async (
+  { name, email, password }: { name: string; email: string; password: string },
+  req: any
+) => {
   const existingUser = await findUserByEmail(email);
   if (existingUser) throw new Error("User already exists");
 
   const user = await createUser({ name, email, password });
 
-  const accessToken = generateToken(user.id);
-  const refreshToken = generateToken(user.id);
+  const accessToken = generateToken(user.id);  // short-lived
+  const refreshToken = generateToken(user.id); // long-lived
 
   await pool.query(
     `INSERT INTO user_devices 
-       (user_id, refresh_token, ip_address, user_agent, login_time, is_revoked)
-       VALUES ($1, $2, $3, $4, NOW(), FALSE)`,
+      (user_id, refresh_token, ip_address, user_agent, login_time, is_revoked)
+     VALUES ($1, $2, $3, $4, NOW(), FALSE)`,
     [user.id, refreshToken, req.ip, req.headers["user-agent"] || ""]
   );
 
-  // ✅ Automatically add user to invited workspaces
-  const invitations = await pool.query(
+  // --- NEW: Convert pending invitations to memberships ---
+  const { rows: invitations } = await pool.query(
     "SELECT * FROM workspace_invitations WHERE email=$1 AND status='PENDING'",
     [email]
   );
 
-  for (const invite of invitations.rows) {
-    const joinedAt = new Date().toISOString();
+  for (const inv of invitations) {
     await pool.query(
       `INSERT INTO workspace_members (workspace_id, user_id, role, joined_at)
-       VALUES ($1, $2, $3, $4)
-       ON CONFLICT DO NOTHING`,
-      [invite.workspace_id, user.id, invite.role, joinedAt]
+       VALUES ($1, $2, $3, NOW())`,
+      [inv.workspace_id, user.id, inv.role]
     );
+
     await pool.query(
       "UPDATE workspace_invitations SET status='ACCEPTED' WHERE id=$1",
-      [invite.id]
+      [inv.id]
     );
   }
 
   return { token: accessToken, refreshToken, user };
-}
-,
+},
+
+
 
   // ------------------- Forgot Password -------------------
   forgotPassword: async ({ email }: { email: string }) => {
