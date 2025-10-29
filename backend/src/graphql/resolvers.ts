@@ -3,7 +3,7 @@ import type { User } from "../models/userModel";
 import pool from "../db"; // for user_devices and password_resets table
 import bcrypt from "bcrypt";
 import crypto from "crypto";
-import { generateToken } from "../auth/jwt";
+import { generateToken,verifyToken } from "../auth/jwt";
 
 const resolvers = {
   // ------------------- Signup -------------------
@@ -75,6 +75,59 @@ const resolvers = {
     await pool.query(`UPDATE password_resets SET used=TRUE WHERE id=$1`, [reset.id]);
 
     return "Password updated successfully!";
+  }
+};
+
+const isAdmin = async (token: string) => {
+  const decoded: any = verifyToken(token);
+  if (!decoded) throw new Error("Invalid token");
+
+  const result = await pool.query("SELECT role FROM users WHERE id=$1", [decoded.userId]);
+  const user = result.rows[0];
+  if (!user || user.role !== "ADMIN") throw new Error("Admin privileges required");
+  return true;
+};
+
+const adminResolvers = {
+  banUser: async ({ userId, adminToken }: { userId: number; adminToken: string }) => {
+    await isAdmin(adminToken);
+
+    await pool.query("UPDATE users SET status='BANNED' WHERE id=$1", [userId]);
+
+    // Optional: log the action
+    await pool.query(
+      "INSERT INTO security_logs (user_id, action, created_at) VALUES ($1, $2, NOW())",
+      [userId, "BANNED"]
+    );
+
+    return "User banned successfully";
+  },
+
+  unbanUser: async ({ userId, adminToken }: { userId: number; adminToken: string }) => {
+    await isAdmin(adminToken);
+
+    await pool.query("UPDATE users SET status='ACTIVE' WHERE id=$1", [userId]);
+
+    await pool.query(
+      "INSERT INTO security_logs (user_id, action, created_at) VALUES ($1, $2, NOW())",
+      [userId, "UNBANNED"]
+    );
+
+    return "User unbanned successfully";
+  },
+
+  adminResetPassword: async ({ userId, newPassword, adminToken }: { userId: number; newPassword: string; adminToken: string }) => {
+    await isAdmin(adminToken);
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    await pool.query("UPDATE users SET password=$1 WHERE id=$2", [hashedPassword, userId]);
+
+    await pool.query(
+      "INSERT INTO security_logs (user_id, action, created_at) VALUES ($1, $2, NOW())",
+      [userId, "PASSWORD_RESET_BY_ADMIN"]
+    );
+
+    return "Password reset successfully";
   }
 };
 

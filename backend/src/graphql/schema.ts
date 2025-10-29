@@ -21,6 +21,9 @@ const schema = buildSchema(`
     login(email: String!, password: String!): AuthPayload
     forgotPassword(email: String!): String
     updatePassword(token: String!, newPassword: String!): String
+      banUser(userId: ID!): String
+  unbanUser(userId: ID!): String
+  adminResetPassword(userId: ID!, newPassword: String!): String
   }
 `);
 
