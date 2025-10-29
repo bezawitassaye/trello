@@ -135,3 +135,5 @@ export const workspaceResolvers = {
     return results;
   }
 };
+
+export default workspaceResolvers;
