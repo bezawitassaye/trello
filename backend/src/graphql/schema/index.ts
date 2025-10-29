@@ -22,7 +22,7 @@ const schema = buildSchema(`
   }
 
   type WorkspaceMember {
-    userId: ID!
+    userId: ID       # nullable for invited users
     role: String!
     joinedAt: String
   }
@@ -66,8 +66,12 @@ const schema = buildSchema(`
     createWorkspace(name: String!, token: String!): Workspace
     removeWorkspaceMember(workspaceId: ID!, userId: ID!, token: String!): String
     updateWorkspaceMemberRole(workspaceId: ID!, userId: ID!, role: String!, token: String!): String
-    addWorkspaceMemberByEmail(workspaceId: ID!, email: String!, role: String, token: String!): WorkspaceMember
-
+    addWorkspaceMemberByEmail(
+      workspaceId: ID!
+      email: String!
+      role: String
+      token: String!
+    ): WorkspaceMember
 
     # Project endpoints (outline)
     createProject(workspaceId: ID!, name: String!, token: String!): Project
