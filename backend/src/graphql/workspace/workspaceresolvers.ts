@@ -42,12 +42,10 @@ export const workspaceResolvers = {
       client.release();
     }
   },
-
-  addWorkspaceMember: async ({ workspaceId, userId, role='MEMBER', token }: any) => {
+  addWorkspaceMember: async ({ workspaceId, userId, role = 'MEMBER', token }: any) => {
     const actorId = getUserIdFromToken(token);
-    await ensureOwner(actorId, parseInt(workspaceId, 10)); // only owner can add
+    await ensureOwner(actorId, parseInt(workspaceId, 10));
 
-    // cannot add OWNER via this path — owner assignment only on creation or transfer
     if (role === 'OWNER') throw new Error('Cannot assign OWNER via addWorkspaceMember');
 
     await pool.query(
@@ -55,9 +53,14 @@ export const workspaceResolvers = {
       [workspaceId, userId, role]
     );
 
-    // Optionally log this action to security_logs or activity
-    return 'Member added/updated';
+   
+    return {
+      userId,
+      role,
+      joinedAt: new Date().toISOString(),
+    };
   },
+
 
   removeWorkspaceMember: async ({ workspaceId, userId, token }: any) => {
     const actorId = getUserIdFromToken(token);
@@ -83,7 +86,7 @@ export const workspaceResolvers = {
     if (owner && owner.user_id === Number(userId)) throw new Error('Cannot change Owner role');
 
     // validate role
-    const allowed = ['MEMBER','VIEWER'];
+    const allowed = ['MEMBER', 'VIEWER'];
     if (!allowed.includes(role)) throw new Error('Invalid role');
 
     await pool.query('UPDATE workspace_members SET role=$1 WHERE workspace_id=$2 AND user_id=$3', [role, workspaceId, userId]);

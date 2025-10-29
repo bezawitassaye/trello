@@ -64,8 +64,8 @@ const schema = buildSchema(`
 
     # Workspace management
     createWorkspace(name: String!, token: String!): Workspace
-    addWorkspaceMember(workspaceId: ID!, userId: ID!, role: String, token: String!): String
-    removeWorkspaceMember(workspaceId: ID!, userId: ID!, token: String!): String
+    addWorkspaceMember(workspaceId: ID!, userId: ID!, role: String, token: String!): WorkspaceMember
+removeWorkspaceMember(workspaceId: ID!, userId: ID!, token: String!): String
     updateWorkspaceMemberRole(workspaceId: ID!, userId: ID!, role: String!, token: String!): String
 
     # Project endpoints (outline)
