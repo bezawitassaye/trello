@@ -1,6 +1,7 @@
 import pool from "../../db";
-import { getUserIdFromToken } from "../../auth/jwt"; // or helper
+import { getUserIdFromToken, verifyToken } from "../../auth/jwt"; // or helper
 import { ensureOwner, ensureAtLeastViewer } from "../../auth/roles";
+import { sendAddedMemberEmail, sendInvitationEmail } from "../../utils/emailService";
 
 /**
  * createWorkspace: creator becomes OWNER
@@ -42,24 +43,39 @@ export const workspaceResolvers = {
       client.release();
     }
   },
-  addWorkspaceMember: async ({ workspaceId, userId, role = 'MEMBER', token }: any) => {
-    const actorId = getUserIdFromToken(token);
-    await ensureOwner(actorId, parseInt(workspaceId, 10));
 
-    if (role === 'OWNER') throw new Error('Cannot assign OWNER via addWorkspaceMember');
+  addWorkspaceMemberByEmail: async ({ workspaceId, email, role = "MEMBER", token }: any) => {
+    const decoded = verifyToken(token);
+    if (!decoded) throw new Error("Unauthorized");
 
+    const { rows: workspaceRows } = await pool.query("SELECT * FROM workspaces WHERE id=$1", [workspaceId]);
+    if (workspaceRows.length === 0) throw new Error("Workspace not found");
+
+    const { rows: userRows } = await pool.query("SELECT * FROM users WHERE email=$1", [email]);
+    let userId: number | null;
+
+    if (userRows.length === 0) {
+      // Send invitation email for new user
+      await sendInvitationEmail(email, workspaceRows[0].name);
+      return { userId: null, role: "INVITED", joinedAt: null };
+    } else {
+      userId = userRows[0].id;
+    }
+
+    const joinedAt = new Date().toISOString();
     await pool.query(
-      'INSERT INTO workspace_members (workspace_id, user_id, role) VALUES ($1, $2, $3) ON CONFLICT (workspace_id, user_id) DO UPDATE SET role = EXCLUDED.role',
-      [workspaceId, userId, role]
+      `INSERT INTO workspace_members (workspace_id, user_id, role, joined_at)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT DO NOTHING`,
+      [workspaceId, userId, role, joinedAt]
     );
 
-   
-    return {
-      userId,
-      role,
-      joinedAt: new Date().toISOString(),
-    };
-  },
+    await sendAddedMemberEmail(email, workspaceRows[0].name);
+
+    return { userId, role, joinedAt };
+  }
+  ,
+
 
 
   removeWorkspaceMember: async ({ workspaceId, userId, token }: any) => {
