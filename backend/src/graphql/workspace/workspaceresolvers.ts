@@ -44,36 +44,58 @@ export const workspaceResolvers = {
     }
   },
 
-  addWorkspaceMemberByEmail: async ({ workspaceId, email, role = "MEMBER", token }: any) => {
-    const decoded = verifyToken(token);
-    if (!decoded) throw new Error("Unauthorized");
+addWorkspaceMemberByEmail: async ({ workspaceId, email, role = "MEMBER", token }: any) => {
+  // ✅ Decode token and assert type
+  interface MyJwtPayload {
+    userId: number;
+    iat: number;
+    exp: number;
+  }
 
-    const { rows: workspaceRows } = await pool.query("SELECT * FROM workspaces WHERE id=$1", [workspaceId]);
-    if (workspaceRows.length === 0) throw new Error("Workspace not found");
+  const decoded = verifyToken(token) as MyJwtPayload;
+  if (!decoded || !decoded.userId) throw new Error("Unauthorized");
 
-    const { rows: userRows } = await pool.query("SELECT * FROM users WHERE email=$1", [email]);
-    let userId: number | null;
+  const invitedBy = decoded.userId; // this is the workspace owner id
 
-    if (userRows.length === 0) {
-      // Send invitation email for new user
-      await sendInvitationEmail(email, workspaceRows[0].name);
-      return { userId: null, role: "INVITED", joinedAt: null };
-    } else {
-      userId = userRows[0].id;
-    }
+  // --- rest of your code ---
+  const { rows: workspaceRows } = await pool.query(
+    "SELECT * FROM workspaces WHERE id=$1",
+    [workspaceId]
+  );
+  if (workspaceRows.length === 0) throw new Error("Workspace not found");
 
-    const joinedAt = new Date().toISOString();
+  const { rows: userRows } = await pool.query("SELECT * FROM users WHERE email=$1", [email]);
+  let userId: number | null;
+
+  if (userRows.length === 0) {
+    // Add to workspace_invitations table
     await pool.query(
-      `INSERT INTO workspace_members (workspace_id, user_id, role, joined_at)
-     VALUES ($1, $2, $3, $4)
-     ON CONFLICT DO NOTHING`,
-      [workspaceId, userId, role, joinedAt]
+      `INSERT INTO workspace_invitations (workspace_id, email, invited_by, role) 
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT DO NOTHING`,
+      [workspaceId, email, invitedBy, role]
     );
 
-    await sendAddedMemberEmail(email, workspaceRows[0].name);
-
-    return { userId, role, joinedAt };
+    await sendInvitationEmail(email, workspaceRows[0].name);
+    return { userId: null, role: "INVITED", joinedAt: null };
+  } else {
+    userId = userRows[0].id;
   }
+
+  const joinedAt = new Date().toISOString();
+  await pool.query(
+    `INSERT INTO workspace_members (workspace_id, user_id, role, joined_at)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT DO NOTHING`,
+    [workspaceId, userId, role, joinedAt]
+  );
+
+  await sendAddedMemberEmail(email, workspaceRows[0].name);
+
+  return { userId, role, joinedAt };
+}
+
+
   ,
 
 
