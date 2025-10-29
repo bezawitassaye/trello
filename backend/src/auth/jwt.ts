@@ -21,3 +21,7 @@ export const generateRefreshToken = (userId: number) => {
   return jwt.sign({ userId }, SECRET, { expiresIn: "7d" });
 };
 
+export const getUserIdFromToken = (token: string): number => {
+  const decoded: any = verifyToken(token);
+  return decoded.userId;
+};

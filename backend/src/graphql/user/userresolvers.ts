@@ -1,9 +1,10 @@
-import { createUser, findUserByEmail } from "../models/userModel";
-import type { User } from "../models/userModel";
-import pool from "../db"; // for user_devices and password_resets table
+import { createUser, findUserByEmail } from "../../models/userModel";
+import type { User } from "../../models/userModel";
+import pool from "../../db"; // for user_devices and password_resets table
 import bcrypt from "bcrypt";
 import crypto from "crypto";
-import { generateToken,verifyToken } from "../auth/jwt";
+import { generateToken,verifyToken } from "../../auth/jwt";
+import { requireAdmin } from "../../middleware/requireAdmin";
 
 const resolvers = {
   // ------------------- Signup -------------------
@@ -88,47 +89,50 @@ const isAdmin = async (token: string) => {
   return true;
 };
 
+
 const adminResolvers = {
-  banUser: async ({ userId, adminToken }: { userId: number; adminToken: string }) => {
-    await isAdmin(adminToken);
+  banUser: async ({ adminToken, userId }: { adminToken: string; userId: number }) => {
+    const admin = await requireAdmin(adminToken); // ✅ Protect the route
 
     await pool.query("UPDATE users SET status='BANNED' WHERE id=$1", [userId]);
 
-    // Optional: log the action
     await pool.query(
       "INSERT INTO security_logs (user_id, action, created_at) VALUES ($1, $2, NOW())",
       [userId, "BANNED"]
     );
 
-    return "User banned successfully";
+    return `User (ID: ${userId}) banned by admin ${admin.email}`;
   },
 
-  unbanUser: async ({ userId, adminToken }: { userId: number; adminToken: string }) => {
-    await isAdmin(adminToken);
+  unbanUser: async ({ adminToken, userId }: { adminToken: string; userId: number }) => {
+    const admin = await requireAdmin(adminToken); // ✅ Protect again
 
     await pool.query("UPDATE users SET status='ACTIVE' WHERE id=$1", [userId]);
-
     await pool.query(
       "INSERT INTO security_logs (user_id, action, created_at) VALUES ($1, $2, NOW())",
       [userId, "UNBANNED"]
     );
 
-    return "User unbanned successfully";
+    return `User (ID: ${userId}) unbanned by admin ${admin.email}`;
   },
 
-  adminResetPassword: async ({ userId, newPassword, adminToken }: { userId: number; newPassword: string; adminToken: string }) => {
-    await isAdmin(adminToken);
+  adminResetPassword: async ({ adminToken, userId, newPassword }: any) => {
+    const admin = await requireAdmin(adminToken); // ✅ Only admins
 
-    const hashedPassword = await bcrypt.hash(newPassword, 10);
-    await pool.query("UPDATE users SET password=$1 WHERE id=$2", [hashedPassword, userId]);
-
+    const hashed = await bcrypt.hash(newPassword, 10);
+    await pool.query("UPDATE users SET password=$1 WHERE id=$2", [hashed, userId]);
     await pool.query(
       "INSERT INTO security_logs (user_id, action, created_at) VALUES ($1, $2, NOW())",
       [userId, "PASSWORD_RESET_BY_ADMIN"]
     );
 
-    return "Password reset successfully";
-  }
+    return `Password reset for user (ID: ${userId}) by admin ${admin.email}`;
+  },
 };
 
-export default resolvers;
+
+export default {
+  ...resolvers,
+  ...adminResolvers
+};
+

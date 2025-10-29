@@ -1,8 +1,8 @@
 import express from "express";
 import cors from "cors";
 import { graphqlHTTP } from "express-graphql";
-import schema from "./graphql/schema";
-import resolvers from "./graphql/resolvers";
+import schema from "./graphql/user/userschema";
+import resolvers from "./graphql/user/userresolvers";
 import dotenv from "dotenv";
 import authRoutes from "./routes/userauthRoutes"; // <- REST endpoints
 
