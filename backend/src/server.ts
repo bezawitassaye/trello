@@ -1,19 +1,20 @@
 import express from "express";
 import cors from "cors";
 import { graphqlHTTP } from "express-graphql";
-import schema from "./graphql/user/userschema";
-import resolvers from "./graphql/user/userresolvers";
 import dotenv from "dotenv";
-import authRoutes from "./routes/userauthRoutes"; // <- REST endpoints
+
+import schema from "./graphql/schema";       // combined schema
+import resolvers from "./graphql/resolvers"; // combined resolvers
+import authRoutes from "./routes/userauthRoutes";
 
 dotenv.config();
 const app = express();
 
-// Enable CORS (allow credentials for cookies)
+// Enable CORS
 app.use(cors({ origin: "http://localhost:5173", credentials: true }));
 app.use(express.json());
 
-// REST endpoints for token management
+// REST endpoints
 app.use("/api/auth", authRoutes);
 
 // GraphQL endpoint
