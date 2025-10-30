@@ -8,6 +8,7 @@ const transporter = nodemailer.createTransport({
   },
 });
 
+
 export const sendAddedMemberEmail = async (email: string, workspaceName: string) => {
   await transporter.sendMail({
     from: `"Trello Clone" <${process.env.EMAIL_USER}>`,
