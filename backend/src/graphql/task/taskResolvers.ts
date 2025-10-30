@@ -1,6 +1,8 @@
 import { verifyToken } from "../../auth/jwt";
 import pool from "../../db";
 import { PubSub } from "graphql-subscriptions";
+import { summarizeText } from "../../utils/aiService";
+
 import {
   sendTaskAssignedEmail,
   sendTaskUpdatedEmail,
@@ -220,6 +222,16 @@ export const taskResolvers = {
     await logSecurity(decoded.userId, null, "NOTIFICATION_MARKED_SEEN", { notificationId });
 
     return notification[0];
+  },
+   summarizeTask: async ({ taskId }: { taskId: number }) => {
+    const { rows } = await pool.query("SELECT description FROM tasks WHERE id=$1", [taskId]);
+    if (!rows.length) throw new Error("Task not found");
+
+    const description = rows[0].description;
+    if (!description) return "No description available";
+
+    const summary = await summarizeText(description);
+    return summary;
   },
 };
 
