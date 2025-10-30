@@ -10,7 +10,8 @@
     "@types/express": "^5.0.5",
     "@types/express-graphql": "^0.9.2",
     "@types/jsonwebtoken": "^9.0.10",
-    "@types/pg": "^8.15.6"
+    "@types/pg": "^8.15.6",
+    "@types/winston": "^2.4.4"
   },
   "peerDependencies": {
     "typescript": "^5"
