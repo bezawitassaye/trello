@@ -24,33 +24,47 @@ interface UpdateProjectMemberRoleArgs {
 // --- Resolvers ---
 export const projectResolvers = {
   // Create a new project
-  createProject: async ({ workspaceId, name, token }: CreateProjectArgs) => {
-    const decoded = verifyToken(token) as MyJwtPayload;
+ createProject: async ({ workspaceId, name, token }: CreateProjectArgs) => {
+  const decoded = verifyToken(token) as MyJwtPayload;
 
-    // 1️⃣ Ensure user is part of workspace
-    const { rows: workspaceMember } = await pool.query(
-      "SELECT * FROM workspace_members WHERE workspace_id=$1 AND user_id=$2",
-      [workspaceId, decoded.userId]
-    );
-    if (!workspaceMember.length) throw new Error("Not a workspace member");
+  // 1️⃣ Ensure user is part of workspace
+  const { rows: workspaceMember } = await pool.query(
+    "SELECT * FROM workspace_members WHERE workspace_id=$1 AND user_id=$2",
+    [workspaceId, decoded.userId]
+  );
+  if (!workspaceMember.length) throw new Error("Not a workspace member");
 
-    // 2️⃣ Insert project record
-    const { rows: project } = await pool.query(
-      `INSERT INTO projects (name, workspace_id, created_by, created_at)
-       VALUES ($1, $2, $3, NOW()) RETURNING *`,
-      [name, workspaceId, decoded.userId]
-    );
+  // 2️⃣ Insert project record
+  const { rows: project } = await pool.query(
+    `INSERT INTO projects (name, workspace_id, created_by, created_at)
+     VALUES ($1, $2, $3, NOW()) RETURNING *`,
+    [name, workspaceId, decoded.userId]
+  );
 
-    // 3️⃣ Add creator as Project Lead
-    await pool.query(
-      `INSERT INTO project_members (project_id, user_id, role, joined_at)
-   VALUES ($1, $2, 'PROJECT_LEAD', NOW())`,
-      [project[0].id, decoded.userId]
-    );
+  // 3️⃣ Add creator as Project Lead
+  await pool.query(
+    `INSERT INTO project_members (project_id, user_id, role, joined_at)
+     VALUES ($1, $2, 'PROJECT_LEAD', NOW())`,
+    [project[0].id, decoded.userId]
+  );
 
+  // 4️⃣ Return GraphQL-friendly response
+  return {
+    id: project[0].id,
+    name: project[0].name,
+    workspaceId: project[0].workspace_id,
+    createdBy: project[0].created_by,
+    createdAt: project[0].created_at,
+    members: [
+      {
+        userId: decoded.userId,
+        role: "PROJECT_LEAD",
+        joinedAt: new Date().toISOString(), // or use DB's joined_at if you want exact value
+      },
+    ],
+  };
+},
 
-    return project[0];
-  },
 
   // Update a project member’s role
   updateProjectMemberRole: async ({

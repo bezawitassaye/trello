@@ -29,7 +29,7 @@ const schema = buildSchema(`
 
   type Project {
     id: ID!
-    workspaceId: ID!
+    workspaceId: ID
     name: String!
     createdBy: ID
     createdAt: String
