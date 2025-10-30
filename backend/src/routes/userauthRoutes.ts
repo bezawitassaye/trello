@@ -93,7 +93,8 @@ router.post("/refresh", async (req, res) => {
       await logSecurity(null, ipAddress, "REFRESH_ERROR", { error: err.message });
     } else {
       await logSecurity(null, ipAddress, "REFRESH_ERROR", { error: String(err) });
-    }res.status(500).json({ message: "Server error" });
+    }
+    res.status(500).json({ message: "Server error" });
   }
 });
 
@@ -118,7 +119,8 @@ router.post("/logout", async (req, res) => {
       await logSecurity(null, ipAddress, "LOGOUT_ERROR", { error: err.message });
     } else {
       await logSecurity(null, ipAddress, "LOGOUT_ERROR", { error: String(err) });
-    }res.status(500).json({ message: "Server error" });
+    }
+    res.status(500).json({ message: "Server error" });
   }
 });
 

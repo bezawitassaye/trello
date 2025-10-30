@@ -5,6 +5,7 @@ import bcrypt from "bcrypt";
 import crypto from "crypto";
 import { generateToken,verifyToken } from "../../auth/jwt";
 import { requireAdmin } from "../../middleware/requireAdmin";
+import { logSecurity } from "../../utils/logger";
 
 const resolvers = {
   // ------------------- Signup -------------------
@@ -113,38 +114,48 @@ const isAdmin = async (token: string) => {
 
 const adminResolvers = {
   banUser: async ({ adminToken, userId }: { adminToken: string; userId: number }) => {
-    const admin = await requireAdmin(adminToken); // ✅ Protect the route
+    const admin = await requireAdmin(adminToken); // Protect route
 
+    // Update user status
     await pool.query("UPDATE users SET status='BANNED' WHERE id=$1", [userId]);
 
-    await pool.query(
-      "INSERT INTO security_logs (user_id, action, created_at) VALUES ($1, $2, NOW())",
-      [userId, "BANNED"]
+    // Log the action using our dual logger
+    await logSecurity(
+      admin.id, // admin performing the action
+      null, // IP can be added if available
+      "USER_BANNED",
+      { targetUserId: userId }
     );
 
     return `User (ID: ${userId}) banned by admin ${admin.email}`;
   },
 
   unbanUser: async ({ adminToken, userId }: { adminToken: string; userId: number }) => {
-    const admin = await requireAdmin(adminToken); // ✅ Protect again
+    const admin = await requireAdmin(adminToken);
 
     await pool.query("UPDATE users SET status='ACTIVE' WHERE id=$1", [userId]);
-    await pool.query(
-      "INSERT INTO security_logs (user_id, action, created_at) VALUES ($1, $2, NOW())",
-      [userId, "UNBANNED"]
+
+    await logSecurity(
+      admin.id,
+      null,
+      "USER_UNBANNED",
+      { targetUserId: userId }
     );
 
     return `User (ID: ${userId}) unbanned by admin ${admin.email}`;
   },
 
   adminResetPassword: async ({ adminToken, userId, newPassword }: any) => {
-    const admin = await requireAdmin(adminToken); // ✅ Only admins
+    const admin = await requireAdmin(adminToken);
 
     const hashed = await bcrypt.hash(newPassword, 10);
     await pool.query("UPDATE users SET password=$1 WHERE id=$2", [hashed, userId]);
-    await pool.query(
-      "INSERT INTO security_logs (user_id, action, created_at) VALUES ($1, $2, NOW())",
-      [userId, "PASSWORD_RESET_BY_ADMIN"]
+
+    await logSecurity(
+      admin.id,
+      null,
+      "ADMIN_PASSWORD_RESET",
+      { targetUserId: userId }
     );
 
     return `Password reset for user (ID: ${userId}) by admin ${admin.email}`;

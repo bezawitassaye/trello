@@ -1,6 +1,8 @@
 // src/graphql/project/projectResolvers.ts
 import { verifyToken } from "../../auth/jwt";
 import pool from "../../db";
+import { logSecurity, logInfo } from "../../utils/logger";
+
 
 type MyJwtPayload = {
   userId: number;
@@ -40,79 +42,85 @@ interface RemoveProjectMemberArgs {
 
 export const projectResolvers = {
   // Create a project (creator becomes PROJECT_LEAD)
-  createProject: async ({ workspaceId, name, token }: CreateProjectArgs) => {
-  const decoded = verifyToken(token) as MyJwtPayload;
+   createProject: async ({ workspaceId, name, token }: CreateProjectArgs) => {
+    const decoded = verifyToken(token) as MyJwtPayload;
 
-  // 1️⃣ Ensure user is part of workspace
-  const { rows: wm } = await pool.query(
-    "SELECT * FROM workspace_members WHERE workspace_id=$1 AND user_id=$2",
-    [workspaceId, decoded.userId]
-  );
-  if (!wm.length) throw new Error("Not a workspace member");
-
-  // 2️⃣ Insert project record
-  const { rows: pRows } = await pool.query(
-    `INSERT INTO projects (name, workspace_id, created_by, created_at)
-     VALUES ($1, $2, $3, NOW()) RETURNING *`,
-    [name, workspaceId, decoded.userId]
-  );
-  const project = pRows[0];
-
-  // 3️⃣ Add creator as Project Lead
-  await pool.query(
-    `INSERT INTO project_members (project_id, user_id, role, joined_at)
-     VALUES ($1, $2, 'PROJECT_LEAD', NOW())`,
-    [project.id, decoded.userId]
-  );
-
-  // 4️⃣ Fetch all workspace members and auto-add them as Contributors
-  const { rows: workspaceMembers } = await pool.query(
-    `SELECT user_id FROM workspace_members WHERE workspace_id = $1`,
-    [workspaceId]
-  );
-
-  for (const member of workspaceMembers) {
-    if (member.user_id !== decoded.userId) {
-      await pool.query(
-        `INSERT INTO project_members (project_id, user_id, role, joined_at)
-         VALUES ($1, $2, 'CONTRIBUTOR', NOW())`,
-        [project.id, member.user_id]
-      );
+    // 1️⃣ Ensure user is part of workspace
+    const { rows: wm } = await pool.query(
+      "SELECT * FROM workspace_members WHERE workspace_id=$1 AND user_id=$2",
+      [workspaceId, decoded.userId]
+    );
+    if (!wm.length) {
+      await logSecurity(decoded.userId, null, "CREATE_PROJECT_FAILED", { workspaceId, reason: "Not a workspace member" });
+      throw new Error("Not a workspace member");
     }
-  }
 
-  // 5️⃣ Return GraphQL-friendly response
-  return {
-    id: project.id,
-    workspaceId: project.workspace_id,
-    name: project.name,
-    createdBy: project.created_by,
-    createdAt: project.created_at,
-    members: [
-      {
-        userId: decoded.userId,
-        role: "PROJECT_LEAD",
-        joinedAt: new Date().toISOString(),
-      },
-      ...workspaceMembers
-        .filter((m) => m.user_id !== decoded.userId)
-        .map((m) => ({
-          userId: m.user_id,
-          role: "CONTRIBUTOR",
+    // 2️⃣ Insert project record
+    const { rows: pRows } = await pool.query(
+      `INSERT INTO projects (name, workspace_id, created_by, created_at)
+       VALUES ($1, $2, $3, NOW()) RETURNING *`,
+      [name, workspaceId, decoded.userId]
+    );
+    const project = pRows[0];
+
+    // 3️⃣ Add creator as Project Lead
+    await pool.query(
+      `INSERT INTO project_members (project_id, user_id, role, joined_at)
+       VALUES ($1, $2, 'PROJECT_LEAD', NOW())`,
+      [project.id, decoded.userId]
+    );
+
+    // 4️⃣ Add all workspace members as contributors
+    const { rows: workspaceMembers } = await pool.query(
+      `SELECT user_id FROM workspace_members WHERE workspace_id = $1`,
+      [workspaceId]
+    );
+
+    for (const member of workspaceMembers) {
+      if (member.user_id !== decoded.userId) {
+        await pool.query(
+          `INSERT INTO project_members (project_id, user_id, role, joined_at)
+           VALUES ($1, $2, 'CONTRIBUTOR', NOW())`,
+          [project.id, member.user_id]
+        );
+      }
+    }
+
+    // 5️⃣ Log project creation
+    await logSecurity(decoded.userId, null, "PROJECT_CREATED", { projectId: project.id, workspaceId });
+
+    // 6️⃣ Return GraphQL-friendly response
+    return {
+      id: project.id,
+      workspaceId: project.workspace_id,
+      name: project.name,
+      createdBy: project.created_by,
+      createdAt: project.created_at,
+      members: [
+        {
+          userId: decoded.userId,
+          role: "PROJECT_LEAD",
           joinedAt: new Date().toISOString(),
-        })),
-    ],
-  };
-},
+        },
+        ...workspaceMembers
+          .filter((m) => m.user_id !== decoded.userId)
+          .map((m) => ({
+            userId: m.user_id,
+            role: "CONTRIBUTOR",
+            joinedAt: new Date().toISOString(),
+          })),
+      ],
+    };
+  },
 
-
-  // Update project (rename). Allowed: PROJECT_LEAD or WORKSPACE OWNER
   updateProject: async ({ projectId, name, token }: UpdateProjectArgs) => {
     const decoded = verifyToken(token) as MyJwtPayload;
 
-    // get project and workspace
     const { rows: projectRows } = await pool.query("SELECT * FROM projects WHERE id=$1", [projectId]);
-    if (!projectRows.length) throw new Error("Project not found");
+    if (!projectRows.length) {
+      await logSecurity(decoded.userId, null, "UPDATE_PROJECT_FAILED", { projectId, reason: "Project not found" });
+      throw new Error("Project not found");
+    }
     const project = projectRows[0];
 
     // Check workspace owner
@@ -121,7 +129,6 @@ export const projectResolvers = {
       [project.workspace_id, decoded.userId]
     );
 
-    // Check project role
     const { rows: projMemberRows } = await pool.query(
       "SELECT * FROM project_members WHERE project_id=$1 AND user_id=$2",
       [projectId, decoded.userId]
@@ -129,18 +136,19 @@ export const projectResolvers = {
 
     const isOwner = !!ownerRows.length;
     const isProjectLead = !!projMemberRows.length && projMemberRows[0].role === "PROJECT_LEAD";
+    if (!isOwner && !isProjectLead) {
+      await logSecurity(decoded.userId, null, "UPDATE_PROJECT_FAILED", { projectId, reason: "Unauthorized" });
+      throw new Error("Unauthorized: must be workspace owner or project lead");
+    }
 
-    if (!isOwner && !isProjectLead) throw new Error("Unauthorized: must be workspace owner or project lead");
-
-    // allowed update: name (you can extend fields as needed)
     const { rows: updatedRows } = await pool.query(
       `UPDATE projects SET name = COALESCE($1, name) WHERE id = $2 RETURNING *`,
       [name, projectId]
     );
-
     const updated = updatedRows[0];
 
-    // return GraphQL-friendly shape (members can be loaded if required)
+    await logSecurity(decoded.userId, null, "PROJECT_UPDATED", { projectId: updated.id, newName: name });
+
     const { rows: members } = await pool.query(
       "SELECT user_id, role, joined_at FROM project_members WHERE project_id=$1",
       [projectId]
@@ -160,22 +168,21 @@ export const projectResolvers = {
     };
   },
 
-  // Delete project (allowed: PROJECT_LEAD or WORKSPACE OWNER)
   deleteProject: async ({ projectId, token }: DeleteProjectArgs) => {
     const decoded = verifyToken(token) as MyJwtPayload;
 
-    // find project
     const { rows: projectRows } = await pool.query("SELECT * FROM projects WHERE id=$1", [projectId]);
-    if (!projectRows.length) throw new Error("Project not found");
+    if (!projectRows.length) {
+      await logSecurity(decoded.userId, null, "DELETE_PROJECT_FAILED", { projectId, reason: "Project not found" });
+      throw new Error("Project not found");
+    }
     const project = projectRows[0];
 
-    // check workspace owner
     const { rows: ownerRows } = await pool.query(
       "SELECT * FROM workspace_members WHERE workspace_id=$1 AND user_id=$2 AND role='OWNER'",
       [project.workspace_id, decoded.userId]
     );
 
-    // check project lead
     const { rows: leadRows } = await pool.query(
       "SELECT role FROM project_members WHERE project_id=$1 AND user_id=$2",
       [projectId, decoded.userId]
@@ -183,10 +190,11 @@ export const projectResolvers = {
 
     const isOwner = !!ownerRows.length;
     const isLead = !!leadRows.length && leadRows[0].role === "PROJECT_LEAD";
+    if (!isOwner && !isLead) {
+      await logSecurity(decoded.userId, null, "DELETE_PROJECT_FAILED", { projectId, reason: "Unauthorized" });
+      throw new Error("Unauthorized: must be workspace owner or project lead");
+    }
 
-    if (!isOwner && !isLead) throw new Error("Unauthorized: must be workspace owner or project lead");
-
-    // transactionally delete related data (tasks, assignments, project_members) then the project
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
@@ -196,8 +204,11 @@ export const projectResolvers = {
       await client.query("DELETE FROM project_members WHERE project_id=$1", [projectId]);
       await client.query("DELETE FROM projects WHERE id=$1", [projectId]);
       await client.query("COMMIT");
+
+      await logSecurity(decoded.userId, null, "PROJECT_DELETED", { projectId });
     } catch (err) {
       await client.query("ROLLBACK");
+      await logSecurity(decoded.userId, null, "DELETE_PROJECT_ERROR", { projectId, error: err });
       throw err;
     } finally {
       client.release();
@@ -205,6 +216,9 @@ export const projectResolvers = {
 
     return { success: true, message: `Project ${projectId} deleted` };
   },
+
+  
+
 
   // Update project member role (PROJECT_LEAD can change roles)
   updateProjectMemberRole: async (
