@@ -1,4 +1,5 @@
 import webPush from "web-push";
+
 import pool from "../db";
 
 const publicKey = process.env.VAPID_PUBLIC_KEY!;
