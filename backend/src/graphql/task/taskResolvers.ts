@@ -4,12 +4,11 @@ import { PubSub } from "graphql-subscriptions";
 import {
   sendTaskAssignedEmail,
   sendTaskUpdatedEmail,
-} from "../../utils/emailService"; // ✅ import the mailer functions
+} from "../../utils/emailService";
+import { logSecurity } from "../../utils/logger"; // ✅ import logger
 
-// ---- Create Typed PubSub Instance ----
 const pubsub = new PubSub<TaskEvents>();
 
-// ---- Types ----
 type MyJwtPayload = {
   userId: number;
   email?: string;
@@ -42,9 +41,7 @@ type TaskEvents = {
   TASK_STATUS_UPDATED: { taskStatusUpdated: any };
 };
 
-// ---- Resolvers ----
 export const taskResolvers = {
-  // 1️⃣ Create Task
   createTask: async ({
     projectId,
     title,
@@ -59,9 +56,12 @@ export const taskResolvers = {
       "SELECT * FROM project_members WHERE project_id=$1 AND user_id=$2",
       [projectId, decoded.userId]
     );
-    if (!member.length) throw new Error("Not a project member");
+    if (!member.length) {
+      await logSecurity(decoded.userId, null, "CREATE_TASK_FAILED", { projectId, reason: "Not a project member" });
+      throw new Error("Not a project member");
+    }
 
-    // fetch project name for email use
+    // fetch project name for email
     const { rows: project } = await pool.query(
       "SELECT name FROM projects WHERE id=$1",
       [projectId]
@@ -84,7 +84,6 @@ export const taskResolvers = {
         [task[0].id, userId]
       );
 
-      // create a notification for each assignee
       await pool.query(
         `INSERT INTO notifications (title, body, recipient_id, status, related_entity_id, created_at)
          VALUES ($1, $2, $3, 'UNSEEN', $4, NOW())`,
@@ -96,7 +95,6 @@ export const taskResolvers = {
         ]
       );
 
-      // ✅ send email to each assignee
       const { rows: user } = await pool.query(
         "SELECT email FROM users WHERE id=$1",
         [userId]
@@ -106,7 +104,13 @@ export const taskResolvers = {
       }
     }
 
-    // publish real-time event
+    // log task creation
+    await logSecurity(decoded.userId, null, "TASK_CREATED", {
+      taskId: task[0].id,
+      projectId,
+      assignedToIds,
+    });
+
     pubsub.publish("TASK_STATUS_UPDATED", {
       taskStatusUpdated: { ...task[0], assignedToIds },
     });
@@ -114,7 +118,6 @@ export const taskResolvers = {
     return { ...task[0], assignedToIds };
   },
 
-  // 2️⃣ Update Task
   updateTask: async ({
     taskId,
     title,
@@ -125,17 +128,17 @@ export const taskResolvers = {
   }: UpdateTaskArgs) => {
     const decoded = verifyToken(token) as MyJwtPayload;
 
-    // ensure membership
     const { rows: member } = await pool.query(
       `SELECT tm.* FROM task_assignments ta
        JOIN project_members tm ON tm.user_id = ta.user_id
        WHERE ta.task_id=$1 AND tm.user_id=$2`,
       [taskId, decoded.userId]
     );
-    if (!member.length)
+    if (!member.length) {
+      await logSecurity(decoded.userId, null, "UPDATE_TASK_FAILED", { taskId, reason: "Unauthorized" });
       throw new Error("Unauthorized: not assigned to this task");
+    }
 
-    // update task info
     const { rows: updatedTask } = await pool.query(
       `UPDATE tasks
        SET title = COALESCE($1, title),
@@ -146,7 +149,6 @@ export const taskResolvers = {
       [title, description, status, taskId]
     );
 
-    // get project info for email
     const { rows: project } = await pool.query(
       `SELECT p.name FROM projects p
        JOIN tasks t ON t.project_id = p.id
@@ -155,18 +157,14 @@ export const taskResolvers = {
     );
     const projectName = project[0]?.name || "Unknown Project";
 
-    // update assignments (if provided)
     if (assignedToIds && assignedToIds.length) {
-      await pool.query("DELETE FROM task_assignments WHERE task_id=$1", [
-        taskId,
-      ]);
+      await pool.query("DELETE FROM task_assignments WHERE task_id=$1", [taskId]);
       for (const userId of assignedToIds) {
         await pool.query(
           `INSERT INTO task_assignments (task_id, user_id) VALUES ($1, $2)`,
           [taskId, userId]
         );
 
-        // create in-app notification
         await pool.query(
           `INSERT INTO notifications (title, body, recipient_id, status, related_entity_id, created_at)
            VALUES ($1, $2, $3, 'UNSEEN', $4, NOW())`,
@@ -178,7 +176,6 @@ export const taskResolvers = {
           ]
         );
 
-        // ✅ send email
         const { rows: user } = await pool.query(
           "SELECT email FROM users WHERE id=$1",
           [userId]
@@ -194,7 +191,9 @@ export const taskResolvers = {
       }
     }
 
-    // publish real-time event
+    // log task update
+    await logSecurity(decoded.userId, null, "TASK_UPDATED", { taskId, updatedFields: { title, description, status }, assignedToIds });
+
     pubsub.publish("TASK_STATUS_UPDATED", {
       taskStatusUpdated: { ...updatedTask[0], assignedToIds },
     });
@@ -202,11 +201,7 @@ export const taskResolvers = {
     return { ...updatedTask[0], assignedToIds };
   },
 
-  // 3️⃣ Mark Notification as Seen
-  markNotificationAsSeen: async ({
-    notificationId,
-    token,
-  }: MarkNotificationArgs) => {
+  markNotificationAsSeen: async ({ notificationId, token }: MarkNotificationArgs) => {
     const decoded = verifyToken(token) as MyJwtPayload;
 
     const { rows: notification } = await pool.query(
@@ -217,14 +212,17 @@ export const taskResolvers = {
       [notificationId, decoded.userId]
     );
 
-    if (!notification.length)
+    if (!notification.length) {
+      await logSecurity(decoded.userId, null, "MARK_NOTIFICATION_FAILED", { notificationId, reason: "Not found or unauthorized" });
       throw new Error("Notification not found or unauthorized");
+    }
+
+    await logSecurity(decoded.userId, null, "NOTIFICATION_MARKED_SEEN", { notificationId });
 
     return notification[0];
   },
 };
 
-// ---- Subscriptions ----
 export const taskSubscriptions = {
   taskStatusUpdated: {
     subscribe: () => (pubsub as any).asyncIterator(["TASK_STATUS_UPDATED"]),
