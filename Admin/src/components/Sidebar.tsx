@@ -1,4 +1,4 @@
-import React from "react";
+
 import { FolderIcon, PlusCircleIcon } from "@heroicons/react/24/outline";
 
 const Sidebar = () => {
