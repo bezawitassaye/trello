@@ -4,11 +4,12 @@ import bcrypt from "bcrypt";
 import pool from "../db";
 import { generateToken, verifyToken } from "../auth/jwt";
 import { logInfo, logSecurity } from "../utils/logger"; // ✅ import your logger
+import { authLimiter } from "../middleware/rateLimiter";
 
 const router = express.Router();
 
 // Login
-router.post("/login", async (req, res) => {
+router.post("/login",authLimiter, async (req, res) => {
   try {
     const { email, password } = req.body;
     const result = await pool.query("SELECT * FROM users WHERE email=$1", [email]);

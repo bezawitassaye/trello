@@ -6,13 +6,25 @@ import crypto from "crypto";
 import { generateToken,verifyToken } from "../../auth/jwt";
 import { requireAdmin } from "../../middleware/requireAdmin";
 import { logSecurity } from "../../utils/logger";
+import { signupRateLimiter } from "../../middleware/rateLimiter";
 
 const resolvers = {
+
   // ------------------- Signup -------------------
+
   signup: async (
   { name, email, password }: { name: string; email: string; password: string },
   req: any
 ) => {
+   const ip = req.ip || "unknown";
+
+  // ✅ Rate limit check
+  try {
+    signupRateLimiter(ip);
+  } catch (err) {
+    await logSecurity(null, ip, "SIGNUP_RATE_LIMIT_TRIGGERED", { email });
+    throw err; // GraphQL will return this as an error
+  }
   const existingUser = await findUserByEmail(email);
   if (existingUser) throw new Error("User already exists");
 
