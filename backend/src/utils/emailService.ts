@@ -8,7 +8,27 @@ const transporter = nodemailer.createTransport({
   },
 });
 
-// Notify user about new task assignment
+// ✅ Workspace invitation email
+export const sendInvitationEmail = async (email: string, workspaceName: string) => {
+  await transporter.sendMail({
+    from: `"Trello Clone" <${process.env.EMAIL_USER}>`,
+    to: email,
+    subject: `Invitation to join ${workspaceName}`,
+    text: `You've been invited to join the workspace "${workspaceName}". Sign up to accept the invitation.`,
+  });
+};
+
+// ✅ Member added email
+export const sendAddedMemberEmail = async (email: string, workspaceName: string) => {
+  await transporter.sendMail({
+    from: `"Trello Clone" <${process.env.EMAIL_USER}>`,
+    to: email,
+    subject: `You’ve been added to ${workspaceName}`,
+    text: `You’ve been added to the workspace "${workspaceName}". Log in to see your new workspace.`,
+  });
+};
+
+// ✅ Task assignment email
 export const sendTaskAssignedEmail = async (email: string, taskTitle: string, projectName: string) => {
   await transporter.sendMail({
     from: `"Trello Clone" <${process.env.EMAIL_USER}>`,
@@ -18,7 +38,7 @@ export const sendTaskAssignedEmail = async (email: string, taskTitle: string, pr
   });
 };
 
-// Notify user about task update/status change
+// ✅ Task updated email
 export const sendTaskUpdatedEmail = async (email: string, taskTitle: string, projectName: string, status?: string) => {
   const statusText = status ? ` The new status is "${status}".` : "";
   await transporter.sendMail({
