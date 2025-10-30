@@ -65,6 +65,11 @@ const schema = buildSchema(`
     taskStatusUpdated(workspaceId: ID!): Task
   }
 
+  type RemoveResponse {
+  success: Boolean!
+  message: String!
+}
+
   # --- Queries ---
   type Query {
     me(token: String!): User
@@ -108,7 +113,11 @@ const schema = buildSchema(`
 
     # Notifications
     markNotificationAsSeen(notificationId: ID!, token: String!): Notification
-  }
+ 
+   
+   removeProjectMember(projectId: ID!, userId: ID!, token: String!): RemoveResponse!
+
+    }
 `);
 
 export default schema;
