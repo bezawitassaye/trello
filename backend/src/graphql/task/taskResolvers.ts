@@ -1,9 +1,14 @@
 import { verifyToken } from "../../auth/jwt";
 import pool from "../../db";
 import { PubSub } from "graphql-subscriptions";
+import {
+  sendTaskAssignedEmail,
+  sendTaskUpdatedEmail,
+} from "../../utils/emailService"; // ✅ import the mailer functions
 
 // ---- Create Typed PubSub Instance ----
 const pubsub = new PubSub<TaskEvents>();
+
 // ---- Types ----
 type MyJwtPayload = {
   userId: number;
@@ -32,6 +37,7 @@ interface MarkNotificationArgs {
   notificationId: number;
   token: string;
 }
+
 type TaskEvents = {
   TASK_STATUS_UPDATED: { taskStatusUpdated: any };
 };
@@ -54,6 +60,13 @@ export const taskResolvers = {
       [projectId, decoded.userId]
     );
     if (!member.length) throw new Error("Not a project member");
+
+    // fetch project name for email use
+    const { rows: project } = await pool.query(
+      "SELECT name FROM projects WHERE id=$1",
+      [projectId]
+    );
+    const projectName = project[0]?.name || "Unknown Project";
 
     // create the task
     const { rows: task } = await pool.query(
@@ -82,9 +95,18 @@ export const taskResolvers = {
           task[0].id,
         ]
       );
+
+      // ✅ send email to each assignee
+      const { rows: user } = await pool.query(
+        "SELECT email FROM users WHERE id=$1",
+        [userId]
+      );
+      if (user.length && user[0].email) {
+        await sendTaskAssignedEmail(user[0].email, title, projectName);
+      }
     }
 
-    // publish real-time event (optional)
+    // publish real-time event
     pubsub.publish("TASK_STATUS_UPDATED", {
       taskStatusUpdated: { ...task[0], assignedToIds },
     });
@@ -110,9 +132,10 @@ export const taskResolvers = {
        WHERE ta.task_id=$1 AND tm.user_id=$2`,
       [taskId, decoded.userId]
     );
-    if (!member.length) throw new Error("Unauthorized: not assigned to this task");
+    if (!member.length)
+      throw new Error("Unauthorized: not assigned to this task");
 
-    // update main task info
+    // update task info
     const { rows: updatedTask } = await pool.query(
       `UPDATE tasks
        SET title = COALESCE($1, title),
@@ -123,16 +146,27 @@ export const taskResolvers = {
       [title, description, status, taskId]
     );
 
+    // get project info for email
+    const { rows: project } = await pool.query(
+      `SELECT p.name FROM projects p
+       JOIN tasks t ON t.project_id = p.id
+       WHERE t.id=$1`,
+      [taskId]
+    );
+    const projectName = project[0]?.name || "Unknown Project";
+
     // update assignments (if provided)
     if (assignedToIds && assignedToIds.length) {
-      await pool.query("DELETE FROM task_assignments WHERE task_id=$1", [taskId]);
+      await pool.query("DELETE FROM task_assignments WHERE task_id=$1", [
+        taskId,
+      ]);
       for (const userId of assignedToIds) {
         await pool.query(
           `INSERT INTO task_assignments (task_id, user_id) VALUES ($1, $2)`,
           [taskId, userId]
         );
 
-        // send notification on reassignment
+        // create in-app notification
         await pool.query(
           `INSERT INTO notifications (title, body, recipient_id, status, related_entity_id, created_at)
            VALUES ($1, $2, $3, 'UNSEEN', $4, NOW())`,
@@ -143,6 +177,20 @@ export const taskResolvers = {
             taskId,
           ]
         );
+
+        // ✅ send email
+        const { rows: user } = await pool.query(
+          "SELECT email FROM users WHERE id=$1",
+          [userId]
+        );
+        if (user.length && user[0].email) {
+          await sendTaskUpdatedEmail(
+            user[0].email,
+            updatedTask[0].title,
+            projectName,
+            status
+          );
+        }
       }
     }
 
@@ -169,18 +217,18 @@ export const taskResolvers = {
       [notificationId, decoded.userId]
     );
 
-    if (!notification.length) throw new Error("Notification not found or unauthorized");
+    if (!notification.length)
+      throw new Error("Notification not found or unauthorized");
 
     return notification[0];
   },
 };
 
-// for subscriptions
+// ---- Subscriptions ----
 export const taskSubscriptions = {
   taskStatusUpdated: {
     subscribe: () => (pubsub as any).asyncIterator(["TASK_STATUS_UPDATED"]),
   },
 };
 
-
-export default { ...taskResolvers,...taskSubscriptions};
+export default { ...taskResolvers, ...taskSubscriptions };
