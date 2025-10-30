@@ -33,37 +33,25 @@ const schema = buildSchema(`
     name: String!
     createdBy: ID
     createdAt: String
+    members: [ProjectMember!]!
   }
 
   type ProjectMember {
     userId: ID!
     role: String!
-  }
-  type Project {
-    id: ID!
-    workspaceId: ID!
-    name: String!
-    createdBy: ID
-    createdAt: String
-    members: [ProjectMember!]!
-}
-
-type ProjectMember {
-    userId: ID!
-    role: String!
     joinedAt: String
-}
+  }
 
-type Task {
+  type Task {
     id: ID!
     projectId: ID!
     title: String!
     description: String
     status: String!
     assignedToIds: [ID!]!
-}
+  }
 
-type Notification {
+  type Notification {
     id: ID!
     title: String!
     body: String!
@@ -71,10 +59,11 @@ type Notification {
     status: String!
     relatedEntityId: ID
     createdAt: String
-}
-type Subscription {
+  }
+
+  type Subscription {
     taskStatusUpdated(workspaceId: ID!): Task
-}
+  }
 
   # --- Queries ---
   type Query {
@@ -109,15 +98,15 @@ type Subscription {
       token: String!
     ): WorkspaceMember
 
-    # Project endpoints (outline)
+    # Project management
     createProject(workspaceId: ID!, name: String!, token: String!): Project
     updateProjectMemberRole(projectId: ID!, userId: ID!, role: String!, token: String!): String
 
-
-    createProject(workspaceId: ID!, name: String!, token: String!): Project
-    updateProjectMemberRole(projectId: ID!, userId: ID!, role: String!, token: String!): String
+    # Task management
     createTask(projectId: ID!, title: String!, description: String, assignedToIds: [ID!]!, token: String!): Task
     updateTask(taskId: ID!, title: String, description: String, status: String, assignedToIds: [ID!], token: String!): Task
+
+    # Notifications
     markNotificationAsSeen(notificationId: ID!, token: String!): Notification
   }
 `);
