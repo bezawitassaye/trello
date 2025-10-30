@@ -44,7 +44,7 @@ export const projectResolvers = {
     // 3️⃣ Add creator as Project Lead
     await pool.query(
       `INSERT INTO project_members (project_id, user_id, role, joined_at)
-   VALUES ($1, $2, 'OWNER', NOW())`,
+   VALUES ($1, $2, 'PROJECT_LEAD', NOW())`,
       [project[0].id, decoded.userId]
     );
 
