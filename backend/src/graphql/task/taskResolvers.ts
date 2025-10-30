@@ -2,9 +2,8 @@ import { verifyToken } from "../../auth/jwt";
 import pool from "../../db";
 import { PubSub } from "graphql-subscriptions";
 
-// initialize PubSub for real-time pushes
-const pubsub = new PubSub();
-
+// ---- Create Typed PubSub Instance ----
+const pubsub = new PubSub<TaskEvents>();
 // ---- Types ----
 type MyJwtPayload = {
   userId: number;
@@ -33,6 +32,9 @@ interface MarkNotificationArgs {
   notificationId: number;
   token: string;
 }
+type TaskEvents = {
+  TASK_STATUS_UPDATED: { taskStatusUpdated: any };
+};
 
 // ---- Resolvers ----
 export const taskResolvers = {
@@ -176,8 +178,9 @@ export const taskResolvers = {
 // for subscriptions
 export const taskSubscriptions = {
   taskStatusUpdated: {
-    subscribe: () => pubsub.asyncIterator(["TASK_STATUS_UPDATED"]),
+    subscribe: () => (pubsub as any).asyncIterator(["TASK_STATUS_UPDATED"]),
   },
 };
 
-export default taskResolvers;
+
+export default { ...taskResolvers,...taskSubscriptions};
