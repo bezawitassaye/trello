@@ -1,7 +1,7 @@
 import { verifyToken } from "../../auth/jwt";
 import pool from "../../db";
 import { PubSub } from "graphql-subscriptions";
-import { summarizeText } from "../../utils/aiService";
+import { generateTasksFromAI, summarizeText } from "../../utils/aiService";
 
 import {
   sendTaskAssignedEmail,
@@ -186,50 +186,48 @@ export const taskResolvers = {
     return notification[0];
   },
   summarizeTask: async ({ taskId }: { taskId: number }) => {
-    const { rows } = await pool.query("SELECT description FROM tasks WHERE id=$1", [taskId]);
-    if (!rows.length) throw new Error("Task not found");
+  const { rows } = await pool.query("SELECT description FROM tasks WHERE id=$1", [taskId]);
+  if (!rows.length) throw new Error("Task not found");
 
-    const description = rows[0].description;
-    if (!description) return "No description available";
+  const description = rows[0].description;
+  if (!description) return "No description available";
 
-    const summary = await summarizeText(description);
-    return summary;
-  },
-  generateTasksFromPrompt: async ({ projectId, prompt, token }: { projectId: number; prompt: string; token: string }) => {
-    const decoded = verifyToken(token) as MyJwtPayload;
+  const summary = await summarizeText(description); // still uses summarizeText
+  return summary;
+},
 
-    // Verify user is part of project
-    const { rows: member } = await pool.query(
-      "SELECT * FROM project_members WHERE project_id=$1 AND user_id=$2",
-      [projectId, decoded.userId]
-    );
-    if (!member.length) {
-      await logSecurity(decoded.userId, null, "GENERATE_TASKS_FAILED", { projectId, reason: "Not a project member" });
-      throw new Error("Not a project member");
-    }
+generateTasksFromPrompt: async ({ projectId, prompt, token }: { projectId: number; prompt: string; token: string }) => {
+  const decoded = verifyToken(token) as MyJwtPayload;
 
-    // Call Gemini AI to generate structured tasks
-    const aiResponse = await summarizeText(`Generate a list of project tasks for: ${prompt}`);
-    const generatedTasks = aiResponse
-      .split("\n")
-      .map((line: string) => line.trim())
-      .filter((line: string) => line.length > 0)
-      .map((title: string) => ({ title, description: "", status: "TODO" }));
+  // Verify user is part of project
+  const { rows: member } = await pool.query(
+    "SELECT * FROM project_members WHERE project_id=$1 AND user_id=$2",
+    [projectId, decoded.userId]
+  );
+  if (!member.length) {
+    await logSecurity(decoded.userId, null, "GENERATE_TASKS_FAILED", { projectId, reason: "Not a project member" });
+    throw new Error("Not a project member");
+  }
 
-    const results = [];
-    for (const task of generatedTasks) {
-      const { rows: created } = await pool.query(
-        `INSERT INTO tasks (project_id, title, description, status)
+  // Use new AI function to generate task titles
+  const taskTitles = await generateTasksFromAI(`Generate a list of tasks for project: ${prompt}`);
+  const generatedTasks = taskTitles.map(title => ({ title, description: "", status: "TODO" }));
+
+  const results = [];
+  for (const task of generatedTasks) {
+    const { rows: created } = await pool.query(
+      `INSERT INTO tasks (project_id, title, description, status)
        VALUES ($1, $2, $3, $4)
        RETURNING *`,
-        [projectId, task.title, task.description, task.status]
-      );
-      results.push(created[0]);
-    }
+      [projectId, task.title, task.description, task.status]
+    );
+    results.push(created[0]);
+  }
 
-    await logSecurity(decoded.userId, null, "AI_TASKS_GENERATED", { projectId, count: results.length });
-    return results;
-  },
+  await logSecurity(decoded.userId, null, "AI_TASKS_GENERATED", { projectId, count: results.length });
+  return results;
+},
+
 
 };
 
