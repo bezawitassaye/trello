@@ -1,29 +1,32 @@
-const MODEL = "text-bison-001"; // supported model
-const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateText`;
+const MODEL = "gemini-2.5-flash";
+const API_URL = `https://generativelanguage.googleapis.com/v1/models/${MODEL}:generateContent`;
 const API_KEY = process.env.GOOGLE_API_KEY;
 
 interface GeminiResponse {
-  candidates?: {
-    output?: string;
-  }[];
+  candidates?: { content?: { parts?: { text?: string }[] } }[];
 }
 
-/**
- * Summarize a task description into 1–2 clear sentences.
- */
 export async function summarizeText(text: string): Promise<string> {
   if (!API_KEY) throw new Error("GOOGLE_API_KEY is missing in .env");
 
-  const prompt = `Summarize this task in 1–2 clear sentences:\n\n${text}`;
-
   try {
-    const response = await fetch(API_URL + `?key=${API_KEY}`, {
+    const response = await fetch(`${API_URL}?key=${API_KEY}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        prompt,
-        temperature: 0.5,
-        maxOutputTokens: 300,
+        contents: [
+          {
+            parts: [
+              {
+                text: `Summarize this task in 1–2 clear sentences:\n\n${text}`
+              }
+            ]
+          }
+        ],
+        generationConfig: {
+          temperature: 0.5,
+          maxOutputTokens: 300
+        }
       }),
     });
 
@@ -33,27 +36,33 @@ export async function summarizeText(text: string): Promise<string> {
     }
 
     const data = (await response.json()) as GeminiResponse;
-    return data.candidates?.[0]?.output?.trim() || "No summary generated.";
+    return (
+      data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ||
+      "No summary generated."
+    );
   } catch (err) {
     console.error("AI summarization failed:", err);
     return "No summary available.";
   }
 }
 
-/**
- * Generate a list of task titles from a prompt.
- */
-export async function generateTasksFromAI(prompt: string): Promise<string[]> {
-  if (!API_KEY) throw new Error("GOOGLE_API_KEY is missing in .env");
-
+export async function generateTasksFromAI(promptText: string): Promise<string[]> {
   try {
-    const response = await fetch(API_URL + `?key=${API_KEY}`, {
+    const response = await fetch(`${API_URL}?key=${API_KEY}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        prompt,
-        temperature: 0.7,
-        maxOutputTokens: 500,
+        contents: [
+          {
+            parts: [
+              { text: `Generate a clear bullet list of project tasks:\n${promptText}` }
+            ]
+          }
+        ],
+        generationConfig: {
+          temperature: 0.6,
+          maxOutputTokens: 500
+        }
       }),
     });
 
@@ -63,11 +72,12 @@ export async function generateTasksFromAI(prompt: string): Promise<string[]> {
     }
 
     const data = (await response.json()) as GeminiResponse;
-    const text = data.candidates?.[0]?.output?.trim() || "";
+    const textOutput =
+      data.candidates?.[0]?.content?.parts?.[0]?.text || "";
 
-    // Split by line into task titles
-    return text
-      .split("\n")
+    // Split output into task list
+    return textOutput
+      .split(/\n|•|-|\*/g)
       .map(line => line.trim())
       .filter(line => line.length > 0);
   } catch (err) {
