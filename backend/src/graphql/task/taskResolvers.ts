@@ -44,81 +44,43 @@ type TaskEvents = {
 };
 
 export const taskResolvers = {
-  createTask: async ({
-    projectId,
-    title,
-    description,
-    assignedToIds,
-    token,
-  }: CreateTaskArgs) => {
-    const decoded = verifyToken(token) as MyJwtPayload;
+  createTask: async ({ projectId, title, description, assignedToIds, token }: CreateTaskArgs) => {
+    try {
+      const decoded = verifyToken(token) as MyJwtPayload;
+     
+      const { rows: member } = await pool.query(
+        "SELECT * FROM project_members WHERE project_id=$1 AND user_id=$2",
+        [projectId, decoded.userId]
+      );
+     if (!member.length) throw new Error("Not a project member");
 
-    // verify membership
-    const { rows: member } = await pool.query(
-      "SELECT * FROM project_members WHERE project_id=$1 AND user_id=$2",
-      [projectId, decoded.userId]
-    );
-    if (!member.length) {
-      await logSecurity(decoded.userId, null, "CREATE_TASK_FAILED", { projectId, reason: "Not a project member" });
-      throw new Error("Not a project member");
-    }
-
-    // fetch project name for email
-    const { rows: project } = await pool.query(
-      "SELECT name FROM projects WHERE id=$1",
-      [projectId]
-    );
-    const projectName = project[0]?.name || "Unknown Project";
-
-    // create the task
-    const { rows: task } = await pool.query(
-      `INSERT INTO tasks (project_id, title, description, status)
+      const { rows: task } = await pool.query(
+        `INSERT INTO tasks (project_id, title, description, status)
        VALUES ($1, $2, $3, 'PENDING') RETURNING *`,
-      [projectId, title, description || null]
-    );
+        [projectId, title, description || null]
+      );
 
-    // assign users
-    for (const userId of assignedToIds) {
-      await pool.query(
-        `INSERT INTO task_assignments (task_id, user_id)
+      console.log("✅ Task created:", task[0]);
+
+      for (const userId of assignedToIds) {
+        await pool.query(
+          `INSERT INTO task_assignments (task_id, user_id)
          VALUES ($1, $2)
          ON CONFLICT DO NOTHING`,
-        [task[0].id, userId]
-      );
-
-      await pool.query(
-        `INSERT INTO notifications (title, body, recipient_id, status, related_entity_id, created_at)
-         VALUES ($1, $2, $3, 'UNSEEN', $4, NOW())`,
-        [
-          "New Task Assigned",
-          `You’ve been assigned to task: ${title}`,
-          userId,
-          task[0].id,
-        ]
-      );
-
-      const { rows: user } = await pool.query(
-        "SELECT email FROM users WHERE id=$1",
-        [userId]
-      );
-      if (user.length && user[0].email) {
-        await sendTaskAssignedEmail(user[0].email, title, projectName);
+          [task[0].id, userId]
+        );
       }
+
+      return { ...task[0], assignedToIds };
+    } catch (error: unknown) {
+      // ✅ Assert error type to access .message
+      const e = error as Error;
+      console.error("❌ createTask error:", e.message);
+      throw new Error(e.message);
     }
+  }
 
-    // log task creation
-    await logSecurity(decoded.userId, null, "TASK_CREATED", {
-      taskId: task[0].id,
-      projectId,
-      assignedToIds,
-    });
-
-    pubsub.publish("TASK_STATUS_UPDATED", {
-      taskStatusUpdated: { ...task[0], assignedToIds },
-    });
-
-    return { ...task[0], assignedToIds };
-  },
+  ,
 
   updateTask: async ({
     taskId,
@@ -223,7 +185,7 @@ export const taskResolvers = {
 
     return notification[0];
   },
-   summarizeTask: async ({ taskId }: { taskId: number }) => {
+  summarizeTask: async ({ taskId }: { taskId: number }) => {
     const { rows } = await pool.query("SELECT description FROM tasks WHERE id=$1", [taskId]);
     if (!rows.length) throw new Error("Task not found");
 
@@ -233,6 +195,42 @@ export const taskResolvers = {
     const summary = await summarizeText(description);
     return summary;
   },
+  generateTasksFromPrompt: async ({ projectId, prompt, token }: { projectId: number; prompt: string; token: string }) => {
+    const decoded = verifyToken(token) as MyJwtPayload;
+
+    // Verify user is part of project
+    const { rows: member } = await pool.query(
+      "SELECT * FROM project_members WHERE project_id=$1 AND user_id=$2",
+      [projectId, decoded.userId]
+    );
+    if (!member.length) {
+      await logSecurity(decoded.userId, null, "GENERATE_TASKS_FAILED", { projectId, reason: "Not a project member" });
+      throw new Error("Not a project member");
+    }
+
+    // Call Gemini AI to generate structured tasks
+    const aiResponse = await summarizeText(`Generate a list of project tasks for: ${prompt}`);
+    const generatedTasks = aiResponse
+      .split("\n")
+      .map((line: string) => line.trim())
+      .filter((line: string) => line.length > 0)
+      .map((title: string) => ({ title, description: "", status: "TODO" }));
+
+    const results = [];
+    for (const task of generatedTasks) {
+      const { rows: created } = await pool.query(
+        `INSERT INTO tasks (project_id, title, description, status)
+       VALUES ($1, $2, $3, $4)
+       RETURNING *`,
+        [projectId, task.title, task.description, task.status]
+      );
+      results.push(created[0]);
+    }
+
+    await logSecurity(decoded.userId, null, "AI_TASKS_GENERATED", { projectId, count: results.length });
+    return results;
+  },
+
 };
 
 export const taskSubscriptions = {

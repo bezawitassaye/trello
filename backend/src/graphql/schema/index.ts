@@ -111,6 +111,7 @@ const schema = buildSchema(`
     # Task management
     createTask(projectId: ID!, title: String!, description: String, assignedToIds: [ID!]!, token: String!): Task
     updateTask(taskId: ID!, title: String, description: String, status: String, assignedToIds: [ID!], token: String!): Task
+    generateTasksFromPrompt(projectId: ID!, prompt: String!, token: String!): [Task!]!
 
     # Notifications
     markNotificationAsSeen(notificationId: ID!, token: String!): Notification

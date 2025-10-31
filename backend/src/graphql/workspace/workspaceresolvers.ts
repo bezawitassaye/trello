@@ -92,7 +92,7 @@ export const workspaceResolvers = {
       );
 
 
-      return { userId: null, role: "INVITED", joinedAt: null };
+      return { userId: null, role: "MEMBER", joinedAt: null };
     } else {
       userId = userRows[0].id;
     }
