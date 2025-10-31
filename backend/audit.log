@@ -100,3 +100,4 @@
 {"level":"warn","message":"{\"timestamp\":\"2025-10-31T02:50:01.497Z\",\"level\":\"security\",\"userId\":8,\"ipAddress\":null,\"action\":\"PROJECT_CREATED\",\"details\":{\"projectId\":12,\"workspaceId\":\"7\"}}","timestamp":"2025-10-31T02:50:01.500Z"}
 {"level":"info","message":"{\"timestamp\":\"2025-10-31T02:54:39.336Z\",\"level\":\"info\",\"userId\":null,\"ipAddress\":null,\"action\":\"SERVER_SHUTDOWN\",\"details\":{\"signal\":\"SIGINT\"}}","timestamp":"2025-10-31T02:54:39.336Z"}
 {"level":"info","message":"{\"timestamp\":\"2025-10-31T02:57:34.620Z\",\"level\":\"info\",\"userId\":null,\"ipAddress\":null,\"action\":\"SERVER_SHUTDOWN\",\"details\":{\"signal\":\"SIGINT\"}}","timestamp":"2025-10-31T02:57:34.622Z"}
+{"level":"info","message":"{\"timestamp\":\"2025-10-31T03:08:23.640Z\",\"level\":\"info\",\"userId\":null,\"ipAddress\":null,\"action\":\"SERVER_SHUTDOWN\",\"details\":{\"signal\":\"SIGINT\"}}","timestamp":"2025-10-31T03:08:23.640Z"}

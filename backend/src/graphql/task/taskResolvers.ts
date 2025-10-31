@@ -52,7 +52,7 @@ interface GeminiResponse {
 // -------------------
 // AI Helper Functions
 // -------------------
-export async function summarizeText(text: string): Promise<string> {
+export async function generateDescription(title: string): Promise<string> {
   if (!process.env.GOOGLE_API_KEY) throw new Error("GOOGLE_API_KEY missing");
 
   try {
@@ -60,17 +60,21 @@ export async function summarizeText(text: string): Promise<string> {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        contents: [{ parts: [{ text: `Summarize this task in 1-2 sentences:\n${text}` }] }],
-        generationConfig: { temperature: 0.5, maxOutputTokens: 300 },
+        contents: [{
+          parts: [{
+            text: `You are a project manager. Write a detailed task description for the task titled: "${title}". Use 1-2 sentences.`
+          }]
+        }],
+        generationConfig: { temperature: 0.5, maxOutputTokens: 200 },
       }),
     });
 
     if (!response.ok) throw new Error(await response.text());
     const data = (await response.json()) as GeminiResponse;
-    return data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "No summary generated.";
+    return data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "Description generation failed.";
   } catch (err) {
-    console.error("summarizeText error:", err);
-    return "No summary generated due to API error.";
+    console.error("generateDescription error:", err);
+    return "Description generation failed.";
   }
 }
 
@@ -87,7 +91,6 @@ export async function generateTasksFromAI(promptText: string): Promise<{ title: 
       }),
     });
 
-
     if (!response.ok) throw new Error(await response.text());
     const data = (await response.json()) as GeminiResponse;
     const textOutput = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
@@ -100,13 +103,8 @@ export async function generateTasksFromAI(promptText: string): Promise<{ title: 
 
     const results = [];
     for (const title of titles) {
-      try {
-        const description = await summarizeText(`Write a detailed description for the task: ${title}`);
-        results.push({ title, description });
-      } catch (err) {
-        console.error("Failed to generate description for:", title, err);
-        results.push({ title, description: "Description generation failed." });
-      }
+      const description = await generateDescription(title);
+      results.push({ title, description });
     }
 
     return results;
@@ -140,8 +138,6 @@ export const taskResolvers = {
         [projectId, title, description || null]
       );
 
-      console.log("✅ Task created:", task[0]);
-
       for (const userId of assignedToIds) {
         await pool.query(
           `INSERT INTO task_assignments (task_id, user_id)
@@ -154,7 +150,7 @@ export const taskResolvers = {
       return { ...task[0], assignedToIds };
     } catch (error: unknown) {
       const e = error as Error;
-      console.error("❌ createTask error:", e.message);
+      console.error("createTask error:", e.message);
       throw new Error(e.message);
     }
   },
@@ -244,7 +240,7 @@ export const taskResolvers = {
     if (!rows.length) throw new Error("Task not found");
     const description = rows[0].description;
     if (!description) return "No description available";
-    return await summarizeText(description);
+    return description; // no longer using summarizeText here
   },
 
   generateTasksFromPrompt: async ({ projectId, prompt, token }: { projectId: number; prompt: string; token: string }) => {
@@ -260,7 +256,6 @@ export const taskResolvers = {
 
     const results = [];
     for (const { title, description } of tasks) {
-      console.log("Inserting task:", { title, description });
       const { rows: created } = await pool.query(
         "INSERT INTO tasks (project_id, title, description, status) VALUES ($1, $2, $3, 'TODO') RETURNING *",
         [projectId, title, description]
